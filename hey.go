@@ -16,6 +16,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -39,14 +41,18 @@ const (
 )
 
 var (
-	m           = flag.String("m", "GET", "")
-	headers     = flag.String("h", "", "")
-	body        = flag.String("d", "", "")
-	bodyFile    = flag.String("D", "", "")
-	accept      = flag.String("A", "", "")
-	contentType = flag.String("T", "text/html", "")
-	authHeader  = flag.String("a", "", "")
-	hostHeader  = flag.String("host", "", "")
+	m             = flag.String("m", "GET", "")
+	headers       = flag.String("h", "", "")
+	body          = flag.String("d", "", "")
+	bodyFile      = flag.String("D", "", "")
+	accept        = flag.String("A", "", "")
+	contentType   = flag.String("T", "text/html", "")
+	authHeader    = flag.String("a", "", "")
+	hostHeader    = flag.String("host", "", "")
+	tlsClientCert = flag.String("client-cert", "", "")
+	tlsClientKey  = flag.String("client-key", "", "")
+	tlsCA         = flag.String("custom-ca", "", "")
+	verifyCerts   = flag.Bool("verify-tls", false, "")
 
 	output = flag.String("o", "", "")
 
@@ -91,8 +97,14 @@ Options:
   -x  HTTP Proxy address as host:port.
   -h2 Enable HTTP/2.
 
+  For use with MTLS connections
+  -client-cert filename
+  -client-key filename
+  -custom-ca filename
+
   -host	HTTP Host header.
 
+  -verify-tls enables verificartion of tls certificates using the system CA pool and custom ones
   -disable-compression  Disable compression.
   -disable-keepalive    Disable keep-alive, prevents re-use of TCP
                         connections between different HTTP requests.
@@ -212,6 +224,27 @@ func main() {
 	header.Set("User-Agent", ua)
 	req.Header = header
 
+	var clientCerts []tls.Certificate
+	if *tlsClientCert != "" || *tlsClientKey != "" {
+		clientCert, err := tls.LoadX509KeyPair(*tlsClientCert, *tlsClientKey)
+		if err != nil {
+			usageAndExit(err.Error())
+		}
+		clientCerts = append(clientCerts, clientCert)
+	}
+
+	caFiles, err := x509.SystemCertPool()
+	if err != nil {
+		errAndExit(err.Error())
+	}
+	if *tlsCA != "" {
+		caCert, err := ioutil.ReadFile(*tlsCA)
+		if err != nil {
+			usageAndExit(err.Error())
+		}
+		caFiles.AppendCertsFromPEM(caCert)
+	}
+
 	w := &requester.Work{
 		Request:            req,
 		RequestBody:        bodyAll,
@@ -222,6 +255,9 @@ func main() {
 		DisableCompression: *disableCompression,
 		DisableKeepAlives:  *disableKeepAlives,
 		DisableRedirects:   *disableRedirects,
+		ClientCert:         clientCerts,
+		CA:                 caFiles,
+		VerifyTLS:          *verifyCerts,
 		H2:                 *h2,
 		ProxyAddr:          proxyURL,
 		Output:             *output,

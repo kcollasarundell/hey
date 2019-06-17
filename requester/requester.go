@@ -18,6 +18,7 @@ package requester
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -67,6 +68,13 @@ type Work struct {
 
 	// Qps is the rate limit in queries per second.
 	QPS float64
+
+	// TLS certificates for use with Client Authentication connections
+	CA         *x509.CertPool
+	ClientCert []tls.Certificate
+
+	// Verify TLS certificates
+	VerifyTLS bool
 
 	// DisableCompression is an option to disable compression in response
 	DisableCompression bool
@@ -228,6 +236,8 @@ func (b *Work) runWorkers() {
 
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
+			ClientCAs:          b.CA,
+			Certificates:       b.ClientCert,
 			InsecureSkipVerify: true,
 			ServerName:         b.Request.Host,
 		},
